@@ -4,9 +4,11 @@ import asyncio
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from dataclasses import asdict
 from pathlib import Path
 
+from lk_agent.actions.capture import capture_text_to_inbox
 from lk_agent.agents.manager import bootstrap_default_agents, list_agent_status, list_agents, run_agent
 from lk_agent.core.config import ensure_runtime_dirs, load_config, save_config
 from lk_agent.core.db import initialize
@@ -68,6 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("query", help="FTS5 query")
     search_parser.add_argument("--limit", type=int, default=10)
     search_parser.set_defaults(handler=cmd_search)
+
+    capture_parser = subparsers.add_parser("capture", help="Write a local inbox note from the CLI")
+    capture_parser.add_argument("text", nargs="+", help="Capture text")
+    capture_parser.add_argument("--vault", default=None, help="Target vault name; defaults to Telegram inbox vault or the only configured vault")
+    capture_parser.add_argument("--dir", dest="inbox_dir", default=None, help="Relative inbox folder inside the vault")
+    capture_parser.add_argument("--title", default="CLI Inbox Capture", help="Markdown note title")
+    capture_parser.set_defaults(handler=cmd_capture)
+
 
     telegram_parser = subparsers.add_parser("telegram", help="Manage Telegram integration")
     telegram_subparsers = telegram_parser.add_subparsers(dest="telegram_command")
@@ -288,6 +298,48 @@ def cmd_vault_rebuild(args: argparse.Namespace) -> int:
         return 0
     finally:
         connection.close()
+
+
+def resolve_capture_vault(config, preferred_name: str | None) -> VaultConfig | None:
+    if preferred_name:
+        return next((vault for vault in config.vaults if vault.name == preferred_name), None)
+    if config.telegram.inbox_vault:
+        return next((vault for vault in config.vaults if vault.name == config.telegram.inbox_vault), None)
+    enabled = [vault for vault in config.vaults if vault.enabled]
+    if len(enabled) == 1:
+        return enabled[0]
+    return None
+
+
+def cmd_capture(args: argparse.Namespace) -> int:
+    config = load_config()
+    vault = resolve_capture_vault(config, args.vault)
+    if vault is None:
+        target = args.vault or config.telegram.inbox_vault or '<unspecified>'
+        print(f"unknown or ambiguous capture vault: {target}", file=sys.stderr)
+        return 1
+    inbox_dir = args.inbox_dir or config.telegram.inbox_dir or "Inbox"
+    capture_text = " ".join(args.text).strip()
+    if not capture_text:
+        print("capture text is empty", file=sys.stderr)
+        return 1
+    ensure_runtime_dirs(config)
+    connection = initialize(config.resolved_db_path(Path.cwd()))
+    try:
+        note_path = capture_text_to_inbox(
+            connection,
+            vault=vault,
+            inbox_dir=inbox_dir,
+            source="cli",
+            title=args.title,
+            text=capture_text,
+            metadata={"captured_at": datetime.now(timezone.utc).isoformat()},
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    print(f"captured to {note_path}")
+    return 0
 
 
 def cmd_search(args: argparse.Namespace) -> int:

@@ -124,6 +124,7 @@ Implemented now:
 - rebuild an index of notes, tags, links, and tasks
 - search notes locally with SQLite FTS5
 - connect a Telegram bot for inbox capture
+- capture inbox notes directly from the CLI with `capture`
 - test Telegram bot configuration with `telegram test`
 - run a foreground `serve` loop for Telegram polling and scheduled jobs
 - store Telegram secrets through a provider-based secret layer
@@ -154,7 +155,7 @@ Current Telegram commands:
 
 Inside your vault, the app can create things like:
 
-- `Inbox/...` for Telegram captures
+- `Inbox/...` for Telegram and CLI captures
 - `Reports/daily.md`
 - `Reports/<vault>-inbox-agent.md`
 - `Reports/<vault>-inbox-agent-triage.md`
@@ -174,6 +175,7 @@ That means the app is not just answering commands. It is writing useful Markdown
 The app also now supports a few explicit frontmatter controls so you can intentionally clear maintained lists:
 
 - `answered: true` or `answered_at: <timestamp>` to suppress a question-like inbox capture from `Questions.md`
+- `inbox_status: done`, `archived`, or `moved` to keep a processed inbox capture out of inbox-driven outputs like `Questions.md`, `Followups.md`, and `Tasks.md`
 - `reviewed_at: <timestamp>` to suppress a note from `Stale.md` when that review time is recent
 - `ignore_maintenance: true` to suppress a note from `Stale.md`, `Untagged.md`, `BrokenLinks.md`, `Orphans.md`, and `Duplicates.md`
 
@@ -215,7 +217,13 @@ python -m lk_agent.cli.main vault add D:\path\to\vault --name main
 python -m lk_agent.cli.main vault rebuild
 ```
 
-3. Set up Telegram if you want phone capture:
+3. Capture a quick local note from the CLI if you want:
+
+```powershell
+python -m lk_agent.cli.main capture Remember to review parser cleanup
+```
+
+4. Set up Telegram if you want phone capture:
 
 ```powershell
 python -m lk_agent.cli.main telegram set-token <YOUR_BOT_TOKEN>
@@ -224,26 +232,26 @@ python -m lk_agent.cli.main telegram set-inbox-vault main --dir Inbox
 python -m lk_agent.cli.main telegram test
 ```
 
-4. Bootstrap the default agents:
+5. Bootstrap the default agents:
 
 ```powershell
 python -m lk_agent.cli.main agents bootstrap --vault main
 ```
 
-5. Run the app in foreground mode:
+6. Run the app in foreground mode:
 
 ```powershell
 python -m lk_agent.cli.main serve --interval-seconds 5
 ```
 
-6. Send a message to the bot, then run the inbox and maintenance agents if needed:
+7. Send a message to the bot, then run the inbox and maintenance agents if needed:
 
 ```powershell
 python -m lk_agent.cli.main agents run main-inbox
 python -m lk_agent.cli.main agents run main-maintenance
 ```
 
-7. Review the generated notes in `Reports/`.
+8. Review the generated notes in `Reports/`.
 
 ## A Very Simple Example Flow
 
@@ -285,6 +293,7 @@ That is the core promise of the project: turn quick captures and scattered notes
 If you want a note to stop appearing in maintained outputs, edit the source note instead of the generated report:
 
 - to clear an item from `Questions.md`, add `answered: true` or `answered_at:` in the source inbox note frontmatter
+- to fully stop a processed inbox capture from resurfacing in inbox-driven outputs, add `inbox_status: done`, `archived`, or `moved`
 - to clear an item from `Stale.md`, add `reviewed_at:` with a recent timestamp in the source note frontmatter
 - to fully suppress a note from maintenance lists, add `ignore_maintenance: true`
 

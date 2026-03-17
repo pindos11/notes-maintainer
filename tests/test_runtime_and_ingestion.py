@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from lk_agent.actions.capture import capture_text_to_inbox
+from lk_agent.cli.main import cmd_capture
+from lk_agent.core.config import save_config
 from lk_agent.agents.memory import write_shared_memory
 from lk_agent.core.db import initialize
 from lk_agent.integrations.runtime import run_cycle
@@ -62,6 +65,43 @@ class RuntimeAndIngestionTests(unittest.TestCase):
         self.assertIsNone(search_result["note_path"])
         self.assertEqual(mapped[0]["mapped_note_path"], plain_result["note_path"])
         self.assertIsNone(mapped[1]["mapped_note_path"])
+
+    def test_cmd_capture_writes_note_via_shared_capture_path(self) -> None:
+        save_config(self.app.config, self.app.root)
+        args = SimpleNamespace(text=["cli", "capture", "works"], vault=None, inbox_dir=None, title="CLI Inbox Capture")
+        with patch("lk_agent.cli.main.Path.cwd", return_value=self.app.root), patch("lk_agent.core.config.Path.cwd", return_value=self.app.root):
+            result = cmd_capture(args)
+        self.assertEqual(result, 0)
+        notes = list((self.app.vault_path / "Inbox").rglob("*.md"))
+        self.assertEqual(len(notes), 1)
+        text = notes[0].read_text(encoding="utf-8")
+        self.assertIn("source: cli", text)
+        self.assertIn("CLI Inbox Capture", text)
+        self.assertIn("cli capture works", text)
+
+    def test_shared_capture_helper_writes_and_indexes_cli_note(self) -> None:
+        connection = self.app.db_connection()
+        try:
+            vault = self.app.config.vaults[0]
+            note_path = capture_text_to_inbox(
+                connection,
+                vault=vault,
+                inbox_dir="Inbox",
+                source="cli",
+                title="CLI Inbox Capture",
+                text="Remember parser cleanup",
+                metadata={"captured_at": "2026-03-18T10:00:00+00:00"},
+            )
+            row = connection.execute(
+                "SELECT title, relative_path FROM notes WHERE absolute_path = ?",
+                (str(note_path),),
+            ).fetchone()
+        finally:
+            connection.close()
+        self.assertTrue(note_path.exists())
+        self.assertIn("Inbox/", row["relative_path"])
+        self.assertEqual(row["title"], "CLI Inbox Capture")
+        self.assertIn("Remember parser cleanup", note_path.read_text(encoding="utf-8"))
 
     def test_build_brief_text_prefers_shared_memory_then_falls_back_to_digest(self) -> None:
         connection = self.app.db_connection()

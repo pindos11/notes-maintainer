@@ -234,7 +234,7 @@ def run_inbox_agent(
     ).fetchall()
     tasks = connection.execute(
         f"""
-        SELECT t.text, n.title, n.relative_path, n.absolute_path, n.updated_at
+        SELECT t.text, n.title, n.relative_path, n.absolute_path, n.updated_at, m.source_type
         FROM tasks AS t
         JOIN notes AS n ON n.id = t.note_id
         JOIN note_metadata AS m ON m.note_id = n.id
@@ -262,6 +262,8 @@ def run_inbox_agent(
             sender = parsed.frontmatter.get("sender")
             file_ref = parsed.frontmatter.get("file_ref")
             preview = summarize_body(parsed.body)
+        if should_skip_inbox_note(frontmatter):
+            continue
         attachment_count += 1 if file_ref else 0
         question_count += 1 if "?" in preview and not is_answered_frontmatter(frontmatter) else 0
         decisions = classify_inbox_item(
@@ -299,9 +301,21 @@ def run_inbox_agent(
             }
         )
 
+    active_tasks: list[sqlite3.Row] = []
+    for row in tasks:
+        if str(row["source_type"] or "") != "inbox":
+            active_tasks.append(row)
+            continue
+        task_path = Path(str(row["absolute_path"] or ""))
+        if not task_path.exists():
+            active_tasks.append(row)
+            continue
+        if not should_skip_inbox_note(parse_markdown(task_path).frontmatter):
+            active_tasks.append(row)
+
     selected_questions = select_question_notes(reviewed_notes, MAX_CANONICAL_QUESTIONS)
     selected_followups = select_followup_notes(reviewed_notes, MAX_CANONICAL_FOLLOWUPS)
-    selected_tasks = select_open_tasks(tasks, MAX_CANONICAL_TASKS)
+    selected_tasks = select_open_tasks(active_tasks, MAX_CANONICAL_TASKS)
 
     suggested_actions = build_inbox_actions(reviewed_notes, selected_tasks)
     report_body = build_inbox_report_body(vault, reviewed_notes, selected_tasks, attachment_count, question_count, suggested_actions)
@@ -810,6 +824,14 @@ def is_truthy(value: object) -> bool:
 
 def is_answered_frontmatter(frontmatter: dict[str, object]) -> bool:
     return is_truthy(frontmatter.get("answered")) or bool(frontmatter.get("answered_at"))
+
+
+def inbox_status(frontmatter: dict[str, object]) -> str:
+    return str(frontmatter.get("inbox_status") or "active").strip().casefold()
+
+
+def should_skip_inbox_note(frontmatter: dict[str, object]) -> bool:
+    return inbox_status(frontmatter) in {"done", "archived", "moved"}
 
 
 def should_ignore_maintenance(frontmatter: dict[str, object]) -> bool:

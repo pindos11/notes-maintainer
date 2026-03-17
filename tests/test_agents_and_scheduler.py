@@ -138,6 +138,31 @@ class AgentAndSchedulerTests(unittest.TestCase):
         self.assertNotIn("Is everything okay?", questions_text)
         self.assertIn("No open question-like inbox captures detected.", questions_text)
 
+    def test_inbox_status_suppresses_inbox_outputs_and_tasks(self) -> None:
+        inbox_path = self.app.vault_path / "Inbox" / "2026-03-16" / "inbox.md"
+        inbox_path.write_text(
+            "---\nsource: telegram\nsender: \"tester\"\nreceived_at: 2026-03-16T10:00:00+00:00\ninbox_status: done\n---\n\n# Telegram Inbox Capture\n\nIs everything okay?\n\n- [ ] Reply to tester\n",
+            encoding="utf-8",
+        )
+        self.app.rebuild()
+
+        connection = self.app.db_connection()
+        try:
+            bootstrap_default_agents(connection, "main")
+            run_agent(connection, self.app.config, "main-inbox", root=self.app.root)
+        finally:
+            connection.close()
+
+        questions_text = (self.app.vault_path / "Reports" / "Questions.md").read_text(encoding="utf-8")
+        followups_text = (self.app.vault_path / "Reports" / "Followups.md").read_text(encoding="utf-8")
+        tasks_text = (self.app.vault_path / "Reports" / "Tasks.md").read_text(encoding="utf-8")
+        self.assertNotIn("Is everything okay?", questions_text)
+        self.assertIn("No open question-like inbox captures detected.", questions_text)
+        self.assertNotIn("Telegram Inbox Capture", followups_text)
+        self.assertIn("No inbox follow-ups are pending.", followups_text)
+        self.assertNotIn("Reply to tester", tasks_text)
+        self.assertIn("Finish parser", tasks_text)
+
     def test_managed_sections_preserve_user_text_in_canonical_notes(self) -> None:
         connection = self.app.db_connection()
         try:

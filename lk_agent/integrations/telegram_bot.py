@@ -9,13 +9,12 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from lk_agent.actions.capture import capture_text_to_inbox
 from lk_agent.actions.digest import build_digest_text
 from lk_agent.agents.memory import read_shared_memory, read_shared_memory_bundle
 from lk_agent.core.models import AppConfig, VaultConfig
 from lk_agent.core.secrets import ENV_TELEGRAM_TOKEN, resolve_telegram_token
 from lk_agent.vault.index import search_notes
-from lk_agent.vault.parser import parse_markdown
-from lk_agent.vault.storage import sync_vault_record, upsert_note
 
 try:
     from telegram import Bot
@@ -186,8 +185,24 @@ def ingest_message(connection: sqlite3.Connection, vault: VaultConfig, config: A
     command_name = extract_command_name(text)
     note_path: Path | None = None
     if should_capture_to_note(text):
-        note_path = write_inbox_note(vault, config.telegram.inbox_dir, message, text, file_ref)
-        index_inbox_note(connection, vault, note_path)
+        note_path = capture_text_to_inbox(
+            connection,
+            vault=vault,
+            inbox_dir=config.telegram.inbox_dir,
+            source="telegram",
+            title="Telegram Inbox Capture",
+            text=note_body_text(text),
+            metadata={
+                "chat_id": int(message.chat_id),
+                "message_id": int(message.message_id),
+                "sender": resolve_sender_name(message),
+                "received_at": received_at,
+                **({"file_ref": file_ref} if file_ref else {}),
+            },
+            trailing_lines=[f"Attachment reference: `{file_ref}`", ""] if file_ref else None,
+            timestamp=message.date,
+            filename=telegram_filename(message),
+        )
     reply_text = handle_command(connection, config, vault, command_name, text, note_path) if command_name else None
     connection.execute(
         """
@@ -465,12 +480,6 @@ def should_capture_to_note(text: str) -> bool:
     return command_name is None or command_name == "capture"
 
 
-def index_inbox_note(connection: sqlite3.Connection, vault: VaultConfig, note_path: Path) -> None:
-    vault_id = sync_vault_record(connection, vault)
-    parsed = parse_markdown(note_path)
-    upsert_note(connection, vault_id, note_path, note_path.relative_to(vault.resolved_path()).as_posix(), parsed)
-
-
 def classify_message(message: object) -> str:
     if getattr(message, "text", None):
         return "text"
@@ -481,6 +490,25 @@ def classify_message(message: object) -> str:
     if getattr(message, "voice", None):
         return "voice"
     return "other"
+
+
+def resolve_sender_name(message: object) -> str:
+    if getattr(message, "from_user", None) is None:
+        return "unknown"
+    return message.from_user.username or message.from_user.full_name or "unknown"
+
+
+def note_body_text(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith('/capture'):
+        parts = stripped.split(maxsplit=1)
+        return parts[1].strip() if len(parts) > 1 else ''
+    return stripped
+
+
+def telegram_filename(message: object) -> str:
+    timestamp = message.date.astimezone(timezone.utc)
+    return f"{timestamp.strftime('%H%M%S')}-chat-{int(message.chat_id)}-msg-{int(message.message_id)}.md"
 
 
 def extract_file_ref(message: object) -> str | None:
@@ -494,42 +522,6 @@ def extract_file_ref(message: object) -> str | None:
     if photo:
         return getattr(photo[-1], "file_id", None)
     return None
-
-
-def write_inbox_note(vault: VaultConfig, inbox_dir: str, message: object, text: str, file_ref: str | None) -> Path:
-    root = vault.resolved_path()
-    timestamp = message.date.astimezone(timezone.utc)
-    target_dir = root / inbox_dir / timestamp.strftime("%Y-%m-%d")
-    target_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{timestamp.strftime('%H%M%S')}-chat-{int(message.chat_id)}-msg-{int(message.message_id)}.md"
-    path = target_dir / filename
-    sender = "unknown"
-    if getattr(message, "from_user", None) is not None:
-        sender = message.from_user.username or message.from_user.full_name
-    body = build_note_body(timestamp, int(message.chat_id), int(message.message_id), sender, text, file_ref)
-    path.write_text(body, encoding="utf-8")
-    return path
-
-
-def build_note_body(timestamp: datetime, chat_id: int, message_id: int, sender: str, text: str, file_ref: str | None) -> str:
-    lines = [
-        "---",
-        "source: telegram",
-        f"chat_id: {chat_id}",
-        f"message_id: {message_id}",
-        f"sender: {json.dumps(sender, ensure_ascii=False)}",
-        f"received_at: {timestamp.isoformat()}",
-    ]
-    if file_ref:
-        lines.append(f"file_ref: {json.dumps(file_ref, ensure_ascii=False)}")
-    lines.extend(["---", "", "# Telegram Inbox Capture", ""])
-    if text:
-        lines.append(text.strip())
-        lines.append("")
-    if file_ref:
-        lines.append(f"Attachment reference: `{file_ref}`")
-        lines.append("")
-    return "\n".join(lines).strip() + "\n"
 
 
 def resolve_vault(config: AppConfig, name: str | None) -> VaultConfig:

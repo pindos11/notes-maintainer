@@ -132,7 +132,7 @@ You want something between “just a folder of files” and “a huge productivi
 This project gives you:
 
 - a vault folder you already own
-- Telegram as a fast inbox
+- Telegram and the CLI as fast inbox inputs
 - generated notes in `Reports/`
 - small agents with narrow responsibilities
 
@@ -164,6 +164,7 @@ This matters because the output is not trapped in a database. You can open these
 The app also supports explicit frontmatter controls for clearing maintained outputs on purpose:
 
 - `answered: true` or `answered_at:` for inbox captures you do not want in `Questions.md` anymore
+- `inbox_status: done`, `archived`, or `moved` for inbox captures you no longer want in inbox-driven outputs like `Questions.md`, `Followups.md`, and `Tasks.md`
 - `reviewed_at:` for notes you have reviewed recently and do not want treated as stale
 - `ignore_maintenance: true` for notes you want hidden from `Stale.md`, `Untagged.md`, `BrokenLinks.md`, `Orphans.md`, and `Duplicates.md`
 
@@ -226,6 +227,18 @@ This gives you:
 - metadata for reports and briefs
 
 For practical note-linking examples and maintenance behavior, see [Linking Guide](linking-guide.md).
+
+### CLI Capture
+
+You can also write directly into the inbox from the local terminal.
+
+Example:
+
+```powershell
+python -m lk_agent.cli.main capture Remember to review parser cleanup
+```
+
+This uses the same capture path as Telegram, so future input methods can share the same inbox logic.
 
 ### Telegram Capture
 
@@ -401,6 +414,7 @@ Do not edit the generated block inside `Questions.md`, `Stale.md`, or similar fi
 Examples:
 
 - add `answered: true` or `answered_at: 2026-03-17T12:00:00+00:00` to an inbox capture to remove it from `Questions.md`
+- add `inbox_status: done` to an inbox capture once you have processed it and do not want it to keep resurfacing in inbox-driven outputs
 - add `reviewed_at: 2026-03-17T12:00:00+00:00` to a note to keep it out of `Stale.md`
 - add `ignore_maintenance: true` to suppress a note from stale, untagged, broken-link, orphan-note, and duplicate-note reviews
 

@@ -1,0 +1,22 @@
+﻿[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-knowledge-agent"
+version = "0.2.0"
+description = "Lightweight local-first knowledge agent for Markdown vaults"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "python-telegram-bot>=21,<22"
+]
+
+[project.scripts]
+lk-agent = "lk_agent.cli.main:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["lk_agent*"]

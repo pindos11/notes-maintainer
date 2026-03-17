@@ -1,0 +1,27 @@
+﻿{
+  "data_dir": "data",
+  "db_path": "data/app.db",
+  "vaults": [
+    {
+      "name": "main",
+      "path": "D:\\path\\to\\your\\vault",
+      "enabled": true
+    }
+  ],
+  "ollama": {
+    "base_url": "http://127.0.0.1:11434",
+    "default_model": null
+  },
+  "telegram": {
+    "bot_token": null,
+    "bot_token_provider": "file",
+    "bot_token_ref": "telegram-bot",
+    "allowed_chat_ids": [],
+    "inbox_vault": "main",
+    "inbox_dir": "Inbox"
+  },
+  "scheduler": {
+    "timezone": "Europe/Kiev",
+    "poll_seconds": 60
+  }
+}

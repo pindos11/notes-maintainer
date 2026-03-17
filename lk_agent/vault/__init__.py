@@ -1,0 +1,2 @@
+"""Vault parsing and indexing."""
+

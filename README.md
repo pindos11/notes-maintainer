@@ -4,12 +4,12 @@ This project is for people who already keep notes in Markdown and want a small l
 
 It does not try to replace your files. It does not trap your data in a remote service. It does not need a big web app to be useful.
 
-It watches the state of your vault through rebuilds, stores derived metadata in SQLite, accepts quick captures from Telegram, and writes useful maintenance notes back into your Markdown folders.
+It watches the state of your vault through rebuilds, stores derived metadata in SQLite, accepts quick captures from Telegram, the CLI, and local file imports, and writes useful maintenance notes back into your Markdown folders.
 
 If you want a simple description, it is this:
 
 - your Markdown files stay the source of truth
-- Telegram becomes a quick capture inbox
+- Telegram, the CLI, and local file import can all feed the inbox
 - scheduled jobs and agents keep summaries, follow-up queues, task lists, and cleanup notes up to date
 - everything stays local unless you choose to sync the files yourself
 
@@ -125,6 +125,7 @@ Implemented now:
 - search notes locally with SQLite FTS5
 - connect a Telegram bot for inbox capture
 - capture inbox notes directly from the CLI with `capture`
+- import local files into the inbox with `inbox import` and `inbox scan-drop`
 - test Telegram bot configuration with `telegram test`
 - run a foreground `serve` loop for Telegram polling and scheduled jobs
 - store Telegram secrets through a provider-based secret layer
@@ -155,7 +156,7 @@ Current Telegram commands:
 
 Inside your vault, the app can create things like:
 
-- `Inbox/...` for Telegram and CLI captures
+- `Inbox/...` for Telegram, CLI, and imported-file captures
 - `Reports/daily.md`
 - `Reports/<vault>-inbox-agent.md`
 - `Reports/<vault>-inbox-agent-triage.md`
@@ -223,7 +224,14 @@ python -m lk_agent.cli.main vault rebuild
 python -m lk_agent.cli.main capture Remember to review parser cleanup
 ```
 
-4. Set up Telegram if you want phone capture:
+4. Import a local file into the inbox if you want:
+
+```powershell
+python -m lk_agent.cli.main inbox import D:\path\to\note.txt
+python -m lk_agent.cli.main inbox scan-drop --source-dir D:\path\to\InboxDrop
+```
+
+5. Set up Telegram if you want phone capture:
 
 ```powershell
 python -m lk_agent.cli.main telegram set-token <YOUR_BOT_TOKEN>
@@ -232,26 +240,26 @@ python -m lk_agent.cli.main telegram set-inbox-vault main --dir Inbox
 python -m lk_agent.cli.main telegram test
 ```
 
-5. Bootstrap the default agents:
+6. Bootstrap the default agents:
 
 ```powershell
 python -m lk_agent.cli.main agents bootstrap --vault main
 ```
 
-6. Run the app in foreground mode:
+7. Run the app in foreground mode:
 
 ```powershell
 python -m lk_agent.cli.main serve --interval-seconds 5
 ```
 
-7. Send a message to the bot, then run the inbox and maintenance agents if needed:
+8. Send a message to the bot, then run the inbox and maintenance agents if needed:
 
 ```powershell
 python -m lk_agent.cli.main agents run main-inbox
 python -m lk_agent.cli.main agents run main-maintenance
 ```
 
-8. Review the generated notes in `Reports/`.
+9. Review the generated notes in `Reports/`.
 
 ## A Very Simple Example Flow
 
@@ -309,7 +317,7 @@ python -m lk_agent.cli.main agents run main-maintenance
 
 Right now, the project still has important limits:
 
-- no live file watcher yet
+- no live file watcher or automatic drop-folder watch yet
 - no detached background service yet
 - no Telegram webhook mode
 - no LLM-driven agent behavior in normal workflows yet

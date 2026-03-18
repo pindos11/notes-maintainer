@@ -9,7 +9,7 @@ See also: [5 Minute Quickstart](quickstart-5min.md)
 This app helps you keep a Markdown notes folder under control by combining:
 
 - local note indexing
-- quick Telegram capture
+- quick Telegram, CLI, or file-based capture
 - scheduled maintenance
 - generated Markdown summaries, follow-ups, tasks, and cleanup notes
 
@@ -23,6 +23,7 @@ The app does not replace them. It builds useful support around them:
 
 - SQLite for search and derived state
 - Telegram for quick capture from your phone
+- CLI capture and local file import when you are already at the machine
 - agents for maintenance tasks
 - generated notes for summaries, follow-up queues, task lists, and cleanup reviews
 
@@ -144,7 +145,7 @@ The app writes useful files back into your vault.
 
 Common examples:
 
-- `Inbox/...` for captured Telegram messages
+- `Inbox/...` for captured Telegram messages, CLI notes, and imported files
 - `Reports/daily.md`
 - `Reports/<vault>-inbox-agent.md`
 - `Reports/<vault>-inbox-agent-triage.md`
@@ -239,6 +240,19 @@ python -m lk_agent.cli.main capture Remember to review parser cleanup
 ```
 
 This uses the same capture path as Telegram, so future input methods can share the same inbox logic.
+
+### File Import
+
+You can import local files into the inbox without Telegram.
+
+Examples:
+
+```powershell
+python -m lk_agent.cli.main inbox import D:\path\to\note.txt
+python -m lk_agent.cli.main inbox scan-drop --source-dir D:\path\to\InboxDrop
+```
+
+`inbox import` keeps the source file in place. `inbox scan-drop` imports every file in the drop folder and, by default, archives the originals into `_processed/` so repeated scans do not duplicate them.
 
 ### Telegram Capture
 
@@ -430,7 +444,7 @@ python -m lk_agent.cli.main agents run main-maintenance
 
 Be clear about the current state:
 
-- no live file watcher yet
+- no live file watcher or automatic drop-folder watch yet
 - no detached background service yet
 - no Telegram webhook mode
 - no Ollama-driven agent behavior in the normal workflow yet

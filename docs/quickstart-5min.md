@@ -6,6 +6,7 @@ Goal:
 
 - add one vault
 - connect Telegram
+- or use local CLI/file capture
 - capture one message
 - generate one inbox report
 - read it back
@@ -82,6 +83,15 @@ python -m lk_agent.cli.main serve --interval-seconds 5
 ```
 
 Leave this terminal running.
+
+## Optional Local Capture
+
+If you want to test without Telegram first, you can create an inbox note locally:
+
+```powershell
+python -m lk_agent.cli.main capture Remember to review parser cleanup
+python -m lk_agent.cli.main inbox import D:\path\to\note.txt
+```
 
 ## Step 6. Send One Telegram Message
 

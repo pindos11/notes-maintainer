@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from lk_agent.actions.capture import capture_text_to_inbox
-from lk_agent.cli.main import cmd_capture
+from lk_agent.cli.main import cmd_capture, cmd_inbox_import, cmd_inbox_scan_drop
 from lk_agent.core.config import save_config
 from lk_agent.agents.memory import write_shared_memory
 from lk_agent.core.db import initialize
@@ -78,6 +78,46 @@ class RuntimeAndIngestionTests(unittest.TestCase):
         self.assertIn("source: cli", text)
         self.assertIn("CLI Inbox Capture", text)
         self.assertIn("cli capture works", text)
+
+    def test_cmd_inbox_import_creates_import_note(self) -> None:
+        save_config(self.app.config, self.app.root)
+        source = self.app.root / "drop.txt"
+        source.write_text("Imported line one\nImported line two\n", encoding="utf-8")
+        args = SimpleNamespace(path=str(source), vault=None, inbox_dir=None, title=None)
+        with patch("lk_agent.cli.main.Path.cwd", return_value=self.app.root), patch("lk_agent.core.config.Path.cwd", return_value=self.app.root):
+            result = cmd_inbox_import(args)
+        self.assertEqual(result, 0)
+        notes = list((self.app.vault_path / "Inbox").rglob("*.md"))
+        self.assertEqual(len(notes), 1)
+        text = notes[0].read_text(encoding="utf-8")
+        self.assertIn("source: import", text)
+        self.assertIn("Imported File: drop.txt", text)
+        self.assertIn("Imported line one", text)
+        self.assertIn("Original file:", text)
+        self.assertTrue(source.exists())
+
+    def test_cmd_inbox_scan_drop_imports_and_archives_files(self) -> None:
+        save_config(self.app.config, self.app.root)
+        drop_dir = self.app.root / "InboxDrop"
+        drop_dir.mkdir(parents=True, exist_ok=True)
+        (drop_dir / "one.txt").write_text("first import", encoding="utf-8")
+        (drop_dir / "two.bin").write_bytes(b"\x00\x01\x02")
+        args = SimpleNamespace(source_dir=str(drop_dir), vault=None, inbox_dir=None, keep_source=False)
+        with patch("lk_agent.cli.main.Path.cwd", return_value=self.app.root), patch("lk_agent.core.config.Path.cwd", return_value=self.app.root):
+            result = cmd_inbox_scan_drop(args)
+        self.assertEqual(result, 0)
+        notes = list((self.app.vault_path / "Inbox").rglob("*.md"))
+        self.assertEqual(len(notes), 2)
+        combined = "\n".join(note.read_text(encoding="utf-8") for note in notes)
+        self.assertIn("source: import", combined)
+        self.assertIn("Imported File: one.txt", combined)
+        self.assertIn("Imported File: two.bin", combined)
+        self.assertIn("Review this file manually.", combined)
+        processed = list((drop_dir / "_processed").rglob("*"))
+        self.assertTrue(any(path.name == "one.txt" for path in processed))
+        self.assertTrue(any(path.name == "two.bin" for path in processed))
+        self.assertFalse((drop_dir / "one.txt").exists())
+        self.assertFalse((drop_dir / "two.bin").exists())
 
     def test_shared_capture_helper_writes_and_indexes_cli_note(self) -> None:
         connection = self.app.db_connection()

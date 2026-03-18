@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from dataclasses import asdict
 from pathlib import Path
 
-from lk_agent.actions.capture import capture_text_to_inbox
+from lk_agent.actions.capture import capture_text_to_inbox, import_file_to_inbox
 from lk_agent.agents.manager import bootstrap_default_agents, list_agent_status, list_agents, run_agent
 from lk_agent.core.config import ensure_runtime_dirs, load_config, save_config
 from lk_agent.core.db import initialize
@@ -77,6 +77,23 @@ def build_parser() -> argparse.ArgumentParser:
     capture_parser.add_argument("--dir", dest="inbox_dir", default=None, help="Relative inbox folder inside the vault")
     capture_parser.add_argument("--title", default="CLI Inbox Capture", help="Markdown note title")
     capture_parser.set_defaults(handler=cmd_capture)
+
+    inbox_parser = subparsers.add_parser("inbox", help="Import local files into the inbox")
+    inbox_subparsers = inbox_parser.add_subparsers(dest="inbox_command")
+
+    inbox_import = inbox_subparsers.add_parser("import", help="Import one local file into the inbox")
+    inbox_import.add_argument("path", help="Path to the file to import")
+    inbox_import.add_argument("--vault", default=None, help="Target vault name; defaults to Telegram inbox vault or the only configured vault")
+    inbox_import.add_argument("--dir", dest="inbox_dir", default=None, help="Relative inbox folder inside the vault")
+    inbox_import.add_argument("--title", default=None, help="Optional Markdown note title")
+    inbox_import.set_defaults(handler=cmd_inbox_import)
+
+    inbox_scan = inbox_subparsers.add_parser("scan-drop", help="Import all files from a drop folder into the inbox")
+    inbox_scan.add_argument("--source-dir", required=True, help="Directory containing files to import")
+    inbox_scan.add_argument("--vault", default=None, help="Target vault name; defaults to Telegram inbox vault or the only configured vault")
+    inbox_scan.add_argument("--dir", dest="inbox_dir", default=None, help="Relative inbox folder inside the vault")
+    inbox_scan.add_argument("--keep-source", action="store_true", help="Do not archive imported files after scanning")
+    inbox_scan.set_defaults(handler=cmd_inbox_scan_drop)
 
 
     telegram_parser = subparsers.add_parser("telegram", help="Manage Telegram integration")
@@ -339,6 +356,100 @@ def cmd_capture(args: argparse.Namespace) -> int:
     finally:
         connection.close()
     print(f"captured to {note_path}")
+    return 0
+
+
+def resolve_inbox_dir(config, explicit_dir: str | None) -> str:
+    return explicit_dir or config.telegram.inbox_dir or "Inbox"
+
+
+def archive_scanned_file(path: Path, source_dir: Path) -> Path:
+    archive_dir = source_dir / "_processed" / datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    target = archive_dir / path.name
+    if target.exists():
+        stem = path.stem
+        suffix = path.suffix
+        counter = 2
+        while True:
+            candidate = archive_dir / f"{stem}-{counter}{suffix}"
+            if not candidate.exists():
+                target = candidate
+                break
+            counter += 1
+    path.rename(target)
+    return target
+
+
+def cmd_inbox_import(args: argparse.Namespace) -> int:
+    config = load_config()
+    vault = resolve_capture_vault(config, args.vault)
+    if vault is None:
+        target = args.vault or config.telegram.inbox_vault or '<unspecified>'
+        print(f"unknown or ambiguous capture vault: {target}", file=sys.stderr)
+        return 1
+    source_path = Path(args.path).expanduser().resolve()
+    if not source_path.exists() or not source_path.is_file():
+        print(f"import source is not a file: {source_path}", file=sys.stderr)
+        return 1
+    inbox_dir = resolve_inbox_dir(config, args.inbox_dir)
+    ensure_runtime_dirs(config)
+    connection = initialize(config.resolved_db_path(Path.cwd()))
+    try:
+        note_path = import_file_to_inbox(
+            connection,
+            vault=vault,
+            inbox_dir=inbox_dir,
+            source_path=source_path,
+            title=args.title,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    print(f"imported {source_path} -> {note_path}")
+    return 0
+
+
+def cmd_inbox_scan_drop(args: argparse.Namespace) -> int:
+    config = load_config()
+    vault = resolve_capture_vault(config, args.vault)
+    if vault is None:
+        target = args.vault or config.telegram.inbox_vault or '<unspecified>'
+        print(f"unknown or ambiguous capture vault: {target}", file=sys.stderr)
+        return 1
+    source_dir = Path(args.source_dir).expanduser().resolve()
+    if not source_dir.exists() or not source_dir.is_dir():
+        print(f"drop source is not a directory: {source_dir}", file=sys.stderr)
+        return 1
+    candidates = [
+        path for path in sorted(source_dir.iterdir())
+        if path.is_file() and path.name != '.gitkeep'
+    ]
+    if not candidates:
+        print("no files to import")
+        return 0
+    inbox_dir = resolve_inbox_dir(config, args.inbox_dir)
+    ensure_runtime_dirs(config)
+    connection = initialize(config.resolved_db_path(Path.cwd()))
+    imported: list[tuple[Path, Path]] = []
+    try:
+        for source_path in candidates:
+            note_path = import_file_to_inbox(
+                connection,
+                vault=vault,
+                inbox_dir=inbox_dir,
+                source_path=source_path,
+            )
+            imported.append((source_path, note_path))
+        connection.commit()
+    finally:
+        connection.close()
+    for source_path, note_path in imported:
+        if args.keep_source:
+            print(f"imported {source_path} -> {note_path}")
+        else:
+            archived_to = archive_scanned_file(source_path, source_dir)
+            print(f"imported {source_path} -> {note_path} archived={archived_to}")
     return 0
 
 

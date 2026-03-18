@@ -17,17 +17,17 @@ def parse_markdown(path: Path) -> ParsedNote:
     raw = path.read_text(encoding="utf-8")
     frontmatter, body = split_frontmatter(raw)
     lines = body.splitlines()
+    frontmatter_tags = extract_frontmatter_tags(frontmatter)
     return ParsedNote(
-        title=extract_title(path, lines),
+        title=extract_title(path, lines, frontmatter),
         raw_content=raw,
         body=body,
         frontmatter=frontmatter,
-        tags=sorted(set(TAG_RE.findall(body))),
+        tags=sorted(set(TAG_RE.findall(body)).union(frontmatter_tags)),
         links=sorted(set(WIKILINK_RE.findall(body) + MARKDOWN_LINK_RE.findall(body))),
         tasks=extract_tasks(lines),
         word_count=len(re.findall(r"\b\w+\b", body)),
     )
-
 
 def split_frontmatter(raw: str) -> tuple[dict[str, object], str]:
     if not raw.startswith("---\n"):
@@ -42,14 +42,37 @@ def split_frontmatter(raw: str) -> tuple[dict[str, object], str]:
 
 def parse_frontmatter(lines: list[str]) -> dict[str, object]:
     data: dict[str, object] = {}
+    current_list_key: str | None = None
+    current_list_items: list[object] = []
+
+    def flush_current_list() -> None:
+        nonlocal current_list_key, current_list_items
+        if current_list_key is not None:
+            data[current_list_key] = current_list_items.copy()
+            current_list_key = None
+            current_list_items = []
+
     for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if current_list_key is not None and stripped.startswith("- "):
+            current_list_items.append(parse_frontmatter_value(stripped[2:].strip()))
+            continue
+        flush_current_list()
         if ":" not in line:
             continue
         key, raw_value = line.split(":", 1)
         key = key.strip()
         if not key:
             continue
-        data[key] = parse_frontmatter_value(raw_value.strip())
+        value = raw_value.strip()
+        if not value:
+            current_list_key = key
+            current_list_items = []
+            continue
+        data[key] = parse_frontmatter_value(value)
+    flush_current_list()
     return data
 
 
@@ -70,10 +93,23 @@ def parse_frontmatter_value(value: str) -> object:
         return value.strip("'\"")
 
 
-def extract_title(path: Path, lines: list[str]) -> str:
+def extract_frontmatter_tags(frontmatter: dict[str, object]) -> list[str]:
+    raw_tags = frontmatter.get("tags")
+    if isinstance(raw_tags, list):
+        return [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+    if isinstance(raw_tags, str) and raw_tags.strip():
+        return [raw_tags.strip()]
+    return []
+
+
+def extract_title(path: Path, lines: list[str], frontmatter: dict[str, object] | None = None) -> str:
     for line in lines:
         if line.startswith("# "):
             return line[2:].strip()
+    if frontmatter:
+        title = str(frontmatter.get("title") or "").strip()
+        if title:
+            return title[:120]
     for line in lines:
         stripped = line.strip()
         if stripped:
